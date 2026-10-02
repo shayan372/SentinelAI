@@ -22,9 +22,10 @@ client = None
 if GROQ_API_KEY:
     client = OpenAI(
         api_key=GROQ_API_KEY,
-       base_url="https://api.groq.com/openai/v1"
+        base_url="https://api.groq.com/openai/v1"
     )
-   try:
+
+try:
     test = client.models.list()
     st.write("GROQ CONNECTION: SUCCESS")
 except Exception as e:
