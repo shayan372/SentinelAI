@@ -34,6 +34,7 @@ def ask_llm(system_prompt, user_prompt, max_tokens=900):
         )
 
     try:
+        st.write("Testing Groq API...")
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
