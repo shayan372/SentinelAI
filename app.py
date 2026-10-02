@@ -16,7 +16,7 @@ try:
 except Exception:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-MODEL = "openai/gpt-oss-20b"
+MODEL = "llama-3.3-70b-versatile"
 
 client = None
 
