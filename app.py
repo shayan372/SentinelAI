@@ -26,12 +26,16 @@ if GROQ_API_KEY:
             api_key=GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1"
         )
+   client = None
+
+if GROQ_API_KEY:
+    try:
+        client = OpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1"
+        )
     except Exception:
         client = None
-        if st.button("Test Groq AI"):
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-20b",
             messages=[
             
         return (
