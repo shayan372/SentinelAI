@@ -17,15 +17,6 @@ except Exception:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 MODEL = "llama-3.3-70b-versatile"
-
-client = None
-
-if GROQ_API_KEY:
-    try:
-        client = OpenAI(
-            api_key=GROQ_API_KEY,
-            base_url="https://api.groq.com/openai/v1"
-        )
 client = None
 
 if GROQ_API_KEY:
@@ -36,8 +27,8 @@ if GROQ_API_KEY:
         )
     except Exception:
         client = None
+
 def ask_llm(system_prompt, user_prompt, max_tokens=900):
-            
         return (
             "AI connection is unavailable.\n\n"
             "The deterministic SentinelAI evidence engine remains active."
