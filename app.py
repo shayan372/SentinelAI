@@ -20,14 +20,10 @@ MODEL = "llama-3.3-70b-versatile"
 client = None
 
 if GROQ_API_KEY:
-    try:
-        client = OpenAI(
-            api_key=GROQ_API_KEY,
-            base_url="https://api.groq.com/openai/v1"
-        )
-    except Exception:
-        client = None
-
+    client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1"
+    )
 def ask_llm(system_prompt, user_prompt, max_tokens=900):
         return (
             "AI connection is unavailable.\n\n"
