@@ -33,21 +33,7 @@ if GROQ_API_KEY:
         response = client.chat.completions.create(
             model="openai/gpt-oss-20b",
             messages=[
-                {
-                    "role": "user",
-                    "content": "Reply with exactly: SentinelAI connection successful"
-                }
-            ],
-            max_tokens=50,
-            temperature=0
-        )
-        st.success(response.choices[0].message.content)
-    except Exception as e:
-        st.error(f"Groq test failed: {e}")
-
-def ask_llm(system_prompt, user_prompt, max_tokens=900):
-
-    if client is None:
+            
         return (
             "AI connection is unavailable.\n\n"
             "The deterministic SentinelAI evidence engine remains active."
