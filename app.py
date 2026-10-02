@@ -25,7 +25,7 @@ if GROQ_API_KEY:
        base_url="https://api.groq.com/openai/v1"
     )
     st.write("Groq key loaded:", bool(GROQ_API_KEY))
-def ask_llm(system_prompt, user_prompt, max_tokens=900):
+def ask_llm(system_prompt, user_prompt, max_tokens=3000):
 
     if client is None:
         return (
