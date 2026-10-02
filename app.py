@@ -26,7 +26,7 @@ if GROQ_API_KEY:
             api_key=GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1"
         )
-   client = None
+client = None
 
 if GROQ_API_KEY:
     try:
@@ -36,7 +36,6 @@ if GROQ_API_KEY:
         )
     except Exception:
         client = None
-
 def ask_llm(system_prompt, user_prompt, max_tokens=900):
             
         return (
