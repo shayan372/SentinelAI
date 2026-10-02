@@ -36,7 +36,8 @@ if GROQ_API_KEY:
         )
     except Exception:
         client = None
-            messages=[
+
+def ask_llm(system_prompt, user_prompt, max_tokens=900):
             
         return (
             "AI connection is unavailable.\n\n"
