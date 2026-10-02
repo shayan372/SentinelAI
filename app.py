@@ -22,7 +22,7 @@ client = None
 if GROQ_API_KEY:
     client = OpenAI(
         api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1"
+       base_url="https://api.groq.com/openai/v1/"
     )
 def ask_llm(system_prompt, user_prompt, max_tokens=900):
 
