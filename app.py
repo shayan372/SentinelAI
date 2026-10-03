@@ -36,6 +36,25 @@ if GROQ_API_KEY:
     )
 
 
+# Optional: route through a proxy if Groq blocks your region.
+# Leave as "https://api.groq.com/openai/v1" for normal use.
+try:
+    GROQ_BASE_URL = st.secrets["GROQ_BASE_URL"]
+except Exception:
+    GROQ_BASE_URL = os.getenv(
+        "GROQ_BASE_URL",
+        "https://api.groq.com/openai/v1"
+    )
+
+client = None
+
+if GROQ_API_KEY:
+    client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url=GROQ_BASE_URL
+    )
+
+
 # ============================================================
 # LLM FUNCTION
 # ============================================================
