@@ -1,6 +1,5 @@
 import os
 import re
-import requests
 import pandas as pd
 import streamlit as st
 from openai import OpenAI
@@ -35,48 +34,6 @@ if GROQ_API_KEY:
         api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1"
     )
-
-
-# Temporary diagnostics
-st.write("GROQ CLIENT CREATED:", client is not None)
-st.write(
-    "KEY SUFFIX:",
-    GROQ_API_KEY[-4:] if GROQ_API_KEY else "NONE"
-)
-
-
-# ============================================================
-# DIRECT GROQ CONNECTION TEST
-# ============================================================
-
-try:
-    test_response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": MODEL,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Reply with OK"
-                }
-            ],
-            "max_tokens": 100
-        },
-        timeout=30
-    )
-
-    st.write("DIRECT GROQ STATUS:", test_response.status_code)
-    st.write(
-        "DIRECT GROQ RESPONSE:",
-        test_response.text[:500]
-    )
-
-except Exception as e:
-    st.write("DIRECT GROQ ERROR:", str(e))
 
 
 # ============================================================
