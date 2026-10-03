@@ -29,6 +29,7 @@ if GROQ_API_KEY:
         base_url="https://api.groq.com/openai/v1"
     )
 st.write("GROQ CLIENT CREATED:", client is not None)
+st.write("KEY SUFFIX:", GROQ_API_KEY[-4:] if GROQ_API_KEY else "NONE")
 if GROQ_API_KEY:
     client = OpenAI(
         api_key=GROQ_API_KEY,
