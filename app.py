@@ -36,12 +36,6 @@ if GROQ_API_KEY:
     )
 
 st.write("GROQ CLIENT CREATED:", client is not None)
-
-st.write("TESTING GROQ CONNECTION...")
-test = client.models.list()
-st.write("GROQ CONNECTION: SUCCESS")
-
-
 try:
     test = client.models.list()
     st.write("GROQ CONNECTION: SUCCESS")
