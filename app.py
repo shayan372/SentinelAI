@@ -29,14 +29,7 @@ if GROQ_API_KEY:
         base_url="https://api.groq.com/openai/v1"
     )
 
-st.write("GROQ CLIENT CREATED:", client is not None)
 
-
-    try:
-    test = client.models.list()
-    st.write("GROQ CONNECTION: SUCCESS")
-except Exception as e:
-    st.write("GROQ CONNECTION ERROR:", str(e))
 
 try:
     test = client.models.list()
