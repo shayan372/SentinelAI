@@ -17,6 +17,10 @@ except Exception:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 MODEL = "openai/gpt-oss-20b"
+# ==============================
+# GROQ CLIENT CONNECTION
+# ==============================
+
 client = None
 
 if GROQ_API_KEY:
@@ -24,6 +28,21 @@ if GROQ_API_KEY:
         api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1"
     )
+
+# Test Groq connection
+if client is not None:
+    try:
+        test = client.models.list()
+        st.write("GROQ CONNECTION: SUCCESS")
+    except Exception as e:
+        st.write("GROQ CONNECTION ERROR:", str(e))
+else:
+    st.write("GROQ CONNECTION ERROR: API key not loaded")
+    try:
+    test = client.models.list()
+    st.write("GROQ CONNECTION: SUCCESS")
+except Exception as e:
+    st.write("GROQ CONNECTION ERROR:", str(e))
 
 try:
     test = client.models.list()
