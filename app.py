@@ -27,15 +27,6 @@ except Exception:
 
 MODEL = "openai/gpt-oss-20b"
 
-client = None
-
-if GROQ_API_KEY:
-    client = OpenAI(
-        api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1"
-    )
-
-
 # Optional: route through a proxy if Groq blocks your region.
 # Leave as "https://api.groq.com/openai/v1" for normal use.
 try:
@@ -585,9 +576,9 @@ if "sentinel_result" in st.session_state:
 
     result = st.session_state["sentinel_result"]
 
-    investigation = result["investigation"]
-    threat_analysis = result["threat_analysis"]
-    timeline = result["timeline"]
+    investigation = result.get("investigation", {})
+    threat_analysis = result.get("threat_analysis", {"observations": [], "ai_analysis": "No AI analysis available."})
+    timeline = result.get("timeline", [])
 
 
     # --------------------------------------------------------
