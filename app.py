@@ -1,5 +1,6 @@
 import os
 import re
+import requests
 import pandas as pd
 import streamlit as st
 from openai import OpenAI
@@ -25,13 +26,7 @@ try:
 except Exception:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-
 MODEL = "openai/gpt-oss-20b"
-
-
-# ============================================================
-# GROQ CLIENT CONNECTION
-# ============================================================
 
 client = None
 
@@ -51,6 +46,40 @@ st.write(
 
 
 # ============================================================
+# DIRECT GROQ CONNECTION TEST
+# ============================================================
+
+try:
+    test_response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Reply with OK"
+                }
+            ],
+            "max_tokens": 100
+        },
+        timeout=30
+    )
+
+    st.write("DIRECT GROQ STATUS:", test_response.status_code)
+    st.write(
+        "DIRECT GROQ RESPONSE:",
+        test_response.text[:500]
+    )
+
+except Exception as e:
+    st.write("DIRECT GROQ ERROR:", str(e))
+
+
+# ============================================================
 # LLM FUNCTION
 # ============================================================
 
@@ -63,7 +92,6 @@ def ask_llm(system_prompt, user_prompt, max_tokens=3000):
         )
 
     try:
-
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
@@ -94,7 +122,6 @@ def ask_llm(system_prompt, user_prompt, max_tokens=3000):
         )
 
     except Exception as e:
-
         return (
             "AI analysis could not be completed for this step.\n\n"
             f"Technical status: {str(e)[:300]}\n\n"
@@ -103,734 +130,7 @@ def ask_llm(system_prompt, user_prompt, max_tokens=3000):
 
 
 # ============================================================
-# LOG INVESTIGATION AGENT
-# ============================================================
-
-def investigate_logs(logs):
-
-    system_prompt = """
-You are SentinelAI's Log Investigation Agent.
-
-Analyze ONLY the supplied security logs.
-
-STRICT EVIDENCE RULES:
-
-- Use only facts explicitly present in the logs.
-- Never invent events, actions, users, IPs, or outcomes.
-- Never use the phrases "privilege escalation" or "data exfiltration".
-- Never use "attacker", "compromise", "malware",
-  "lateral movement", "persistence", or "unauthorized access"
-  as established facts.
-- PRIVILEGE_ACCESS must remain exactly "PRIVILEGE_ACCESS".
-- LOGIN_SUCCESS does not prove account compromise.
-- LOGIN_FAILED does not prove brute force.
-- UNUSUAL_ACTIVITY does not prove malicious activity.
-- If something cannot be established, say:
-  "Not established by the available evidence."
-
-Use EXACTLY this format:
-
-## INCIDENT SUMMARY
-
-2-3 concise sentences based only on the logs.
-
-## OBSERVED EVIDENCE
-
-- Maximum 5 factual bullets.
-- Preserve exact event names, timestamps, username, and source IP.
-
-## SUSPICIOUS PATTERNS
-
-- Maximum 4 bullets.
-- Describe patterns without assigning attacker intent.
-- Do not name an attack type unless explicitly established.
-
-## RISK ASSESSMENT
-
-Risk Level: LOW / MEDIUM / HIGH / CRITICAL
-
-Reason: 1-2 sentences based only on observed evidence.
-
-## EVIDENCE LIMITATIONS
-
-- Maximum 4 bullets.
-- State what the supplied logs cannot establish.
-
-## HUMAN REVIEW
-
-- Maximum 3 investigation steps.
-- Recommendations must be for human review only.
-
-Be concise and professional.
-"""
-
-    user_prompt = f"""
-Analyze these security logs:
-
-{logs}
-
-Return only the requested SentinelAI report.
-"""
-
-    response = ask_llm(
-        system_prompt,
-        user_prompt,
-        max_tokens=650
-    )
-
-    forbidden_replacements = {
-        "privilege escalation": "privilege-access activity",
-        "Privilege Escalation": "privilege-access activity",
-        "data exfiltration": "data transfer not established",
-        "Data Exfiltration": "data transfer not established",
-        "attacker activity": "activity of unknown origin",
-        "Attacker activity": "activity of unknown origin"
-    }
-
-    for incorrect, corrected in forbidden_replacements.items():
-        response = response.replace(
-            incorrect,
-            corrected
-        )
-
-    return response
-
-
-# ============================================================
-# THREAT ANALYSIS AGENT
-# ============================================================
-
-def analyze_incident(investigation):
-
-    system_prompt = """
-You are SentinelAI's Threat Analysis Agent.
-
-Analyze ONLY the supplied investigation.
-
-CRITICAL RULES:
-
-- Use exact evidence from the investigation.
-- LOGIN_FAILED does not prove brute force.
-- LOGIN_SUCCESS does not prove compromise.
-- PRIVILEGE_ACCESS must remain exactly "PRIVILEGE_ACCESS".
-- Do not call it privilege escalation.
-- Do not claim unauthorized access.
-- Do not introduce data exfiltration, malware, attacker activity,
-  or system damage.
-- If evidence is insufficient, explicitly say so.
-- Hypotheses must be clearly labeled UNCONFIRMED.
-
-Use EXACTLY this format:
-
-## INCIDENT TYPE
-
-Suspicious authentication and system activity;
-specific attack type not established.
-
-## OBSERVED INDICATORS
-
-- Maximum 4 factual bullets.
-
-## HYPOTHESES
-
-- Maximum 3 clearly labeled UNCONFIRMED hypotheses.
-- Keep them general and evidence-aware.
-
-## RISK ASSESSMENT
-
-Risk Level: LOW / MEDIUM / HIGH / CRITICAL
-
-Reason: Explain why the activity requires attention
-without claiming compromise.
-
-## EVIDENCE LIMITATIONS
-
-- Maximum 4 bullets.
-
-## HUMAN REVIEW
-
-- Maximum 3 human-review actions.
-
-Be concise.
-"""
-
-    user_prompt = f"""
-Analyze this SentinelAI investigation:
-
-{investigation}
-
-Return only the requested report.
-"""
-
-    return ask_llm(
-        system_prompt,
-        user_prompt,
-        max_tokens=700
-    )
-
-
-# ============================================================
-# TIMELINE AGENT
-# ============================================================
-
-def analyze_timeline(logs):
-
-    timeline = logs.copy()
-
-    timeline["Timestamp"] = pd.to_datetime(
-        timeline["Timestamp"]
-    )
-
-    timeline = timeline.sort_values(
-        "Timestamp"
-    ).reset_index(drop=True)
-
-    timeline["GapSeconds"] = (
-        timeline["Timestamp"].diff().dt.total_seconds()
-    )
-
-    observations = []
-
-    for i, row in timeline.iterrows():
-
-        timestamp = row["Timestamp"].strftime("%H:%M:%S")
-        event = row["Event Type"]
-        username = row["Username"]
-        ip = row["Source IP"]
-
-        if i == 0:
-
-            observations.append(
-                f"- {timestamp}: {event} for {username} from {ip}."
-            )
-
-        else:
-
-            gap = int(row["GapSeconds"])
-
-            observations.append(
-                f"- {timestamp}: {event} for {username} from {ip} "
-                f"({gap}s after previous event)."
-            )
-
-    gaps = []
-
-    for i in range(1, len(timeline)):
-
-        previous_event = timeline.loc[
-            i - 1, "Event Type"
-        ]
-
-        current_event = timeline.loc[
-            i, "Event Type"
-        ]
-
-        gap = int(
-            (
-                timeline.loc[i, "Timestamp"]
-                - timeline.loc[i - 1, "Timestamp"]
-            ).total_seconds()
-        )
-
-        gaps.append(
-            f"- {gap}s between {previous_event} and {current_event}."
-        )
-
-    total_seconds = int(
-        (
-            timeline.iloc[-1]["Timestamp"]
-            - timeline.iloc[0]["Timestamp"]
-        ).total_seconds()
-    )
-
-    minutes = total_seconds // 60
-    seconds = total_seconds % 60
-
-    duration = (
-        f"{minutes}m {seconds}s"
-        if minutes > 0
-        else f"{seconds}s"
-    )
-
-    first_time = timeline.iloc[0]["Timestamp"].strftime(
-        "%H:%M:%S"
-    )
-
-    last_time = timeline.iloc[-1]["Timestamp"].strftime(
-        "%H:%M:%S"
-    )
-
-    return f"""
-## TIMELINE SUMMARY
-
-Investigation window: {first_time} to {last_time}.
-
-Total duration: {duration}.
-
-## CHRONOLOGICAL OBSERVATIONS
-
-{chr(10).join(observations)}
-
-## TIME GAPS
-
-{chr(10).join(gaps)}
-
-## TIMELINE LIMITATIONS
-
-- Only the supplied events are represented.
-- The logs do not provide session identifiers or detailed user actions.
-- Timing alone does not establish compromise or malicious intent.
-""".strip()
-
-
-# ============================================================
-# EVIDENCE GUARD
-# ============================================================
-
-def evidence_guard(response):
-
-    replacements = {
-        "internal IP": "source IP",
-        "Internal IP": "source IP",
-        "internal network": "network context not established",
-        "Internal network": "network context not established",
-        "gained elevated rights": "had a privilege-access event",
-        "gained elevated privileges": "had a privilege-access event",
-        "Privilege elevation": "Privilege-access event",
-        "privilege elevation": "privilege-access event",
-        "privilege escalation": "privilege-access event",
-        "Privilege escalation": "privilege-access event",
-        "subsequent privilege elevation": "subsequent privilege-access event"
-    }
-
-    guarded_response = str(response)
-
-    for incorrect, corrected in replacements.items():
-        guarded_response = guarded_response.replace(
-            incorrect,
-            corrected
-        )
-
-    return guarded_response
-
-
-# ============================================================
-# EVIDENCE VALIDATOR
-# ============================================================
-
-def evidence_validator(logs, agent_outputs):
-
-    valid_times = set(
-        pd.to_datetime(logs["Timestamp"])
-        .dt.strftime("%H:%M:%S")
-        .tolist()
-    )
-
-    valid_ips = set(
-        logs["Source IP"].astype(str)
-    )
-
-    valid_users = set(
-        logs["Username"].astype(str).str.lower()
-    )
-
-    valid_events = set(
-        logs["Event Type"].astype(str)
-    )
-
-    results = {}
-    issues = []
-
-    for agent_name, output in agent_outputs.items():
-
-        output = str(output)
-
-        agent_result = {
-            "unsupported_timestamps": [],
-            "unsupported_ips": [],
-            "unsupported_users": [],
-            "unsupported_events": [],
-            "unsupported_claims": []
-        }
-
-        # Timestamp validation
-
-        found_times = set(
-            re.findall(
-                r"\b\d{2}:\d{2}:\d{2}\b",
-                output
-            )
-        )
-
-        for timestamp in found_times:
-
-            if timestamp not in valid_times:
-
-                agent_result["unsupported_timestamps"].append(
-                    timestamp
-                )
-
-                issues.append(
-                    f"{agent_name}: unsupported timestamp {timestamp}"
-                )
-
-        # IP validation
-
-        found_ips = set(
-            re.findall(
-                r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
-                output
-            )
-        )
-
-        for ip in found_ips:
-
-            if ip not in valid_ips:
-
-                agent_result["unsupported_ips"].append(ip)
-
-                issues.append(
-                    f"{agent_name}: unsupported IP {ip}"
-                )
-
-        # Username validation
-
-        found_users = set()
-
-        username_patterns = [
-            r"\busername\s*[:=]\s*([A-Za-z0-9_.-]+)",
-            r"\buser\s*[:=]\s*([A-Za-z0-9_.-]+)",
-            r"\baccount\s*[:=]\s*([A-Za-z0-9_.-]+)"
-        ]
-
-        for pattern in username_patterns:
-
-            matches = re.findall(
-                pattern,
-                output,
-                flags=re.IGNORECASE
-            )
-
-            for username in matches:
-
-                username = username.lower()
-
-                if username in valid_users:
-                    continue
-
-                found_users.add(username)
-
-        for username in found_users:
-
-            agent_result["unsupported_users"].append(
-                username
-            )
-
-            issues.append(
-                f"{agent_name}: unsupported username {username}"
-            )
-
-        # Event validation
-
-        event_pattern = r"\b[A-Z][A-Z0-9_]{3,}\b"
-
-        found_events = set(
-            re.findall(
-                event_pattern,
-                output
-            )
-        )
-
-        ignored_tokens = {
-            "AI",
-            "IP",
-            "LLM",
-            "HIGH",
-            "MEDIUM",
-            "LOW",
-            "CRITICAL",
-            "UNCONFIRMED",
-            "PASS",
-            "FAIL",
-            "WARNING",
-            "SENTINELAI",
-            "INCIDENT",
-            "SUMMARY",
-            "OBSERVED",
-            "EVIDENCE",
-            "RISK",
-            "LEVEL",
-            "HUMAN",
-            "REVIEW",
-            "ACCESS",
-            "TYPE",
-            "NOTE"
-        }
-
-        for event in found_events:
-
-            if event in ignored_tokens:
-                continue
-
-            if event in valid_events:
-                continue
-
-            security_keywords = [
-                "LOGIN",
-                "ACCESS",
-                "ACTIVITY",
-                "PRIVILEGE",
-                "AUTH",
-                "SESSION",
-                "FILE",
-                "NETWORK"
-            ]
-
-            if any(
-                keyword in event
-                for keyword in security_keywords
-            ):
-
-                agent_result["unsupported_events"].append(
-                    event
-                )
-
-                issues.append(
-                    f"{agent_name}: unsupported event {event}"
-                )
-
-        # Unsupported claim detection
-
-        forbidden_claims = [
-            "privilege escalation",
-            "privilege escalated",
-            "gained elevated privileges",
-            "elevated privileges were obtained",
-            "account compromised",
-            "account was compromised",
-            "successful brute force",
-            "successful brute-force",
-            "data exfiltration",
-            "malware infection",
-            "attacker activity",
-            "attacker accessed",
-            "attacker gained access",
-            "lateral movement",
-            "persistence"
-        ]
-
-        claim_text = output
-
-        limitation_markers = [
-            "## EVIDENCE LIMITATIONS",
-            "## TIMELINE LIMITATIONS",
-            "EVIDENCE LIMITATIONS:",
-            "TIMELINE LIMITATIONS:"
-        ]
-
-        for marker in limitation_markers:
-
-            if marker.lower() in claim_text.lower():
-
-                parts = re.split(
-                    re.escape(marker),
-                    claim_text,
-                    flags=re.IGNORECASE
-                )
-
-                claim_text = parts[0]
-
-        lowered = claim_text.lower()
-
-        for claim in forbidden_claims:
-
-            if claim in lowered:
-
-                agent_result["unsupported_claims"].append(
-                    claim
-                )
-
-                issues.append(
-                    f"{agent_name}: unsupported claim '{claim}'"
-                )
-
-        results[agent_name] = agent_result
-
-    status = (
-        "⚠ REVIEW REQUIRED"
-        if issues
-        else "✅ VALIDATED"
-    )
-
-    return {
-        "status": status,
-        "agent_results": results,
-        "issues": issues
-    }
-
-
-# ============================================================
-# ORCHESTRATOR AGENT
-# ============================================================
-
-def orchestrate_incident(logs):
-
-    # Agent 1
-    investigation = investigate_logs(logs)
-
-    # Agent 2
-    incident_analysis = analyze_incident(
-        investigation
-    )
-
-    # Agent 3
-    timeline = analyze_timeline(logs)
-
-    # Raw logs are authoritative
-
-    evidence_table = logs.to_string(
-        index=False
-    )
-
-    system_prompt = """
-You are SentinelAI's Final Orchestrator.
-
-Create a professional defensive cybersecurity
-incident report.
-
-CRITICAL EVIDENCE RULES:
-
-- RAW SECURITY LOGS are the authoritative evidence.
-- Never invent facts or events.
-- Never call PRIVILEGE_ACCESS "privilege escalation".
-- Never claim account compromise.
-- Never claim malicious intent.
-- Never claim malware.
-- Never claim data exfiltration.
-- Never claim lateral movement.
-- Never claim persistence.
-- Never identify an attacker.
-- LOGIN_SUCCESS does not prove compromise.
-- UNUSUAL_ACTIVITY does not prove malicious activity.
-- If something cannot be established, write:
-  "Not established by the available evidence."
-
-Agent analyses are interpretations only.
-They cannot override the raw logs.
-
-Return:
-
-SENTINELAI INCIDENT REPORT
-
-1. Executive Summary
-
-2. Key Evidence
-
-3. Security Assessment
-
-4. Risk Level
-
-5. Evidence Limitations
-
-6. Recommended Human Review
-
-Keep it concise and evidence-based.
-"""
-
-    user_prompt = f"""
-RAW SECURITY LOGS — AUTHORITATIVE:
-
-{evidence_table}
-
-LOG INVESTIGATION AGENT:
-
-{investigation}
-
-THREAT ANALYSIS AGENT:
-
-{incident_analysis}
-
-TIMELINE AGENT:
-
-{timeline}
-
-Generate the final SentinelAI incident report.
-"""
-
-    final_report = ask_llm(
-        system_prompt,
-        user_prompt,
-        max_tokens=900
-    )
-
-    final_report = evidence_guard(
-        final_report
-    )
-
-    return {
-        "investigation": investigation,
-        "incident_analysis": incident_analysis,
-        "timeline": timeline,
-        "final_report": final_report
-    }
-
-
-# ============================================================
-# ANALYST ASSISTANT
-# ============================================================
-
-def sentinel_assistant(question, sentinel_result):
-
-    system_prompt = """
-You are SentinelAI Assistant, a defensive cybersecurity assistant.
-
-Use ONLY information contained in the supplied SentinelAI results.
-
-Rules:
-
-- Do not invent events, IPs, users, or outcomes.
-- Do not claim account compromise unless explicitly confirmed.
-- Do not claim malicious intent unless explicitly confirmed.
-- Do not call PRIVILEGE_ACCESS "privilege escalation".
-- Do not claim malware, data theft, lateral movement, or persistence
-  unless explicitly supported.
-- Clearly distinguish facts from assessments.
-- If something cannot be determined, say:
-  "That is not established by the available evidence."
-- Recommendations are for human review only.
-- Never claim SentinelAI performed an operational security action.
-
-Answer directly and professionally.
-"""
-
-    user_prompt = f"""
-SENTINELAI INVESTIGATION:
-
-{sentinel_result["investigation"]}
-
-SENTINELAI INCIDENT ANALYSIS:
-
-{sentinel_result["incident_analysis"]}
-
-SENTINELAI FINAL REPORT:
-
-{sentinel_result["final_report"]}
-
-USER QUESTION:
-
-{question}
-"""
-
-    response = ask_llm(
-        system_prompt,
-        user_prompt
-    )
-
-    return evidence_guard(response)
-
-
-# ============================================================
-# SIMULATED SECURITY LOGS
+# SECURITY LOG DATA
 # ============================================================
 
 security_logs = pd.DataFrame([
@@ -874,38 +174,390 @@ security_logs = pd.DataFrame([
 
 
 # ============================================================
-# STREAMLIT UI
+# LOG INVESTIGATION AGENT
+# ============================================================
+
+def investigate_logs(logs):
+
+    events = logs.to_dict("records")
+
+    failed_logins = logs[
+        logs["Event Type"] == "LOGIN_FAILED"
+    ]
+
+    successful_logins = logs[
+        logs["Event Type"] == "LOGIN_SUCCESS"
+    ]
+
+    privilege_events = logs[
+        logs["Event Type"] == "PRIVILEGE_ACCESS"
+    ]
+
+    unusual_events = logs[
+        logs["Event Type"] == "UNUSUAL_ACTIVITY"
+    ]
+
+    source_ips = logs["Source IP"].dropna().unique().tolist()
+
+    usernames = logs["Username"].dropna().unique().tolist()
+
+    result = {
+        "incident_id": "INC-2026-001",
+        "total_events": len(logs),
+        "failed_logins": len(failed_logins),
+        "successful_logins": len(successful_logins),
+        "privilege_access_events": len(privilege_events),
+        "unusual_activity_events": len(unusual_events),
+        "source_ips": source_ips,
+        "usernames": usernames,
+        "events": events
+    }
+
+    return result
+
+
+# ============================================================
+# THREAT ANALYSIS AGENT
+# ============================================================
+
+def analyze_incident(investigation):
+
+    failed = investigation["failed_logins"]
+    successful = investigation["successful_logins"]
+    privilege = investigation["privilege_access_events"]
+    unusual = investigation["unusual_activity_events"]
+
+    observations = []
+
+    if failed > 0:
+        observations.append(
+            f"{failed} failed login attempt(s) were recorded."
+        )
+
+    if successful > 0:
+        observations.append(
+            f"{successful} successful login event(s) were recorded."
+        )
+
+    if privilege > 0:
+        observations.append(
+            f"{privilege} privilege access event(s) were recorded."
+        )
+
+    if unusual > 0:
+        observations.append(
+            f"{unusual} unusual activity event(s) were recorded."
+        )
+
+    threat_prompt = f"""
+You are the Threat Analysis Agent in SentinelAI.
+
+Analyze only the supplied evidence.
+
+Incident:
+{investigation}
+
+Requirements:
+- Do not invent events.
+- Do not invent indicators.
+- Do not claim confirmed compromise.
+- Clearly distinguish facts from interpretations.
+- State that malicious intent cannot be confirmed from these logs alone.
+- Provide concise security analysis.
+"""
+
+    ai_analysis = ask_llm(
+        threat_prompt,
+        "Analyze the supplied incident evidence."
+    )
+
+    return {
+        "observations": observations,
+        "ai_analysis": ai_analysis
+    }
+
+
+# ============================================================
+# TIMELINE AGENT
+# ============================================================
+
+def analyze_timeline(logs):
+
+    timeline = logs.copy()
+
+    timeline["Timestamp"] = pd.to_datetime(
+        timeline["Timestamp"]
+    )
+
+    timeline = timeline.sort_values("Timestamp")
+
+    timeline_events = []
+
+    for _, row in timeline.iterrows():
+
+        timeline_events.append(
+            {
+                "time": row["Timestamp"].strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                "event": row["Event Type"],
+                "username": row["Username"],
+                "source_ip": row["Source IP"]
+            }
+        )
+
+    return timeline_events
+
+
+# ============================================================
+# EVIDENCE GUARD
+# ============================================================
+
+def evidence_guard(response):
+
+    if not response:
+        return response
+
+    forbidden_patterns = [
+        r"confirmed attack",
+        r"confirmed breach",
+        r"attacker\s+is",
+        r"the attacker",
+        r"malware\s+was\s+installed",
+        r"data\s+was\s+stolen"
+    ]
+
+    cleaned = response
+
+    for pattern in forbidden_patterns:
+
+        cleaned = re.sub(
+            pattern,
+            "not confirmed by the supplied evidence",
+            cleaned,
+            flags=re.IGNORECASE
+        )
+
+    return cleaned
+
+
+# ============================================================
+# EVIDENCE VALIDATOR
+# ============================================================
+
+def evidence_validator(logs, agent_outputs):
+
+    log_text = logs.to_string(index=False)
+
+    validation_results = []
+
+    for agent_name, output in agent_outputs.items():
+
+        if output is None:
+            validation_results.append(
+                f"{agent_name}: No output available."
+            )
+            continue
+
+        output_text = str(output)
+
+        fabricated_terms = [
+            "malware installed",
+            "data stolen",
+            "confirmed breach",
+            "confirmed attacker",
+            "ransomware deployed"
+        ]
+
+        found = []
+
+        for term in fabricated_terms:
+
+            if term.lower() in output_text.lower():
+                found.append(term)
+
+        if found:
+
+            validation_results.append(
+                f"{agent_name}: Review required — "
+                f"unsupported claims detected."
+            )
+
+        else:
+
+            validation_results.append(
+                f"{agent_name}: Evidence validation passed."
+            )
+
+    return validation_results
+
+
+# ============================================================
+# ORCHESTRATOR AGENT
+# ============================================================
+
+def orchestrate_incident(logs):
+
+    investigation = investigate_logs(logs)
+
+    threat_analysis = analyze_incident(
+        investigation
+    )
+
+    timeline = analyze_timeline(logs)
+
+    specialist_outputs = {
+        "Log Investigation Agent": investigation,
+        "Threat Analysis Agent": threat_analysis,
+        "Timeline Agent": timeline
+    }
+
+    validation = evidence_validator(
+        logs,
+        specialist_outputs
+    )
+
+    report_prompt = f"""
+You are the Orchestrator Agent for SentinelAI.
+
+Create an evidence-first incident investigation report.
+
+Evidence:
+{logs.to_dict("records")}
+
+Log Investigation:
+{investigation}
+
+Threat Analysis:
+{threat_analysis}
+
+Timeline:
+{timeline}
+
+Rules:
+1. Use only supplied evidence.
+2. Do not invent events or indicators.
+3. Separate facts from interpretations.
+4. Do not claim confirmed malicious intent.
+5. Do not claim confirmed compromise.
+6. Do not recommend automatic destructive actions.
+7. Clearly identify uncertainty.
+8. Keep the report professional and concise.
+
+Structure:
+
+Executive Summary
+Observed Evidence
+Timeline
+Threat Assessment
+Uncertainty / Limitations
+Recommended Human Review
+"""
+
+    final_report = ask_llm(
+        report_prompt,
+        "Produce the final evidence-first investigation report.",
+        max_tokens=3000
+    )
+
+    final_report = evidence_guard(final_report)
+
+    return {
+        "investigation": investigation,
+        "threat_analysis": threat_analysis,
+        "timeline": timeline,
+        "validation": validation,
+        "final_report": final_report
+    }
+
+
+# ============================================================
+# SENTINEL ASSISTANT
+# ============================================================
+
+def sentinel_assistant(question, sentinel_result):
+
+    context = {
+        "investigation": sentinel_result["investigation"],
+        "threat_analysis": sentinel_result["threat_analysis"],
+        "timeline": sentinel_result["timeline"],
+        "final_report": sentinel_result["final_report"]
+    }
+
+    system_prompt = """
+You are SentinelAI Assistant.
+
+Answer questions using only the investigation evidence supplied.
+
+Rules:
+- Do not invent facts.
+- Do not invent security events.
+- Do not claim confirmed compromise.
+- Clearly distinguish evidence from interpretation.
+- If the evidence does not answer the question, say so.
+- Do not perform automatic security actions.
+- Keep answers concise and professional.
+"""
+
+    answer = ask_llm(
+        system_prompt,
+        f"""
+Investigation context:
+
+{context}
+
+User question:
+
+{question}
+""",
+        max_tokens=1200
+    )
+
+    return evidence_guard(answer)
+
+
+# ============================================================
+# HEADER
 # ============================================================
 
 st.title("🛡️ SentinelAI")
 
-st.caption(
-    "AI Incident Response • Multi-Agent Security Analysis "
-    "• Evidence-First Reasoning"
+st.markdown(
+    """
+### AI Incident Response & Evidence-First Investigation
+
+SentinelAI uses specialized AI agents to investigate security incidents,
+analyze threats, reconstruct timelines, and produce an evidence-first
+investigation report.
+"""
 )
 
 
-c1, c2, c3, c4 = st.columns(4)
+# ============================================================
+# METRICS
+# ============================================================
 
-with c1:
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
     st.metric(
         "Incident",
         "INC-2026-001"
     )
 
-with c2:
+with col2:
     st.metric(
         "Events",
         len(security_logs)
     )
 
-with c3:
+with col3:
     st.metric(
         "Agents",
         "5"
     )
 
-with c4:
+with col4:
     st.metric(
         "Mode",
         "Simulated"
@@ -915,24 +567,17 @@ with c4:
 st.divider()
 
 
-st.subheader("🔐 Security Events")
+# ============================================================
+# INVESTIGATION
+# ============================================================
+
+st.header("🔍 Investigation")
 
 st.dataframe(
     security_logs,
     width="stretch",
     hide_index=True
 )
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "sentinel_result" not in st.session_state:
-    st.session_state.sentinel_result = None
-
-if "validation_result" not in st.session_state:
-    st.session_state.validation_result = None
 
 
 # ============================================================
@@ -946,154 +591,169 @@ if st.button(
 ):
 
     with st.spinner(
-        "Running multi-agent investigation..."
+        "SentinelAI agents are investigating the incident..."
     ):
 
         result = orchestrate_incident(
             security_logs
         )
 
-        validation = evidence_validator(
-            security_logs,
-            {
-                "Log Investigation Agent":
-                    result["investigation"],
-
-                "Threat Analysis Agent":
-                    result["incident_analysis"],
-
-                "Timeline Agent":
-                    result["timeline"]
-            }
-        )
-
-        st.session_state.sentinel_result = result
-        st.session_state.validation_result = validation
-
-    st.success(
-        "SentinelAI investigation completed."
-    )
-
-
-result = st.session_state.sentinel_result
-validation = st.session_state.validation_result
+        st.session_state["sentinel_result"] = result
 
 
 # ============================================================
-# RESULTS
+# DISPLAY RESULTS
 # ============================================================
 
-if result:
+if "sentinel_result" in st.session_state:
 
-    st.divider()
+    result = st.session_state["sentinel_result"]
 
-    st.subheader(
-        "🧩 Multi-Agent Investigation"
-    )
-
-
-    a, b, c = st.columns(3)
+    investigation = result["investigation"]
+    threat_analysis = result["threat_analysis"]
+    timeline = result["timeline"]
 
 
-    with a:
+    # --------------------------------------------------------
+    # SPECIALIST AGENTS
+    # --------------------------------------------------------
 
-        st.success(
-            "🔍 Log Investigation\n\nCompleted"
-        )
-
-
-    with b:
-
-        st.success(
-            "🎯 Threat Analysis\n\nCompleted"
-        )
+    st.header("🤖 Specialist Agent Outputs")
 
 
-    with c:
-
-        st.success(
-            "🕒 Timeline Analysis\n\nCompleted"
-        )
-
-
-    st.subheader(
-        "🛡️ Evidence Validation"
-    )
-
-
-    if (
-        validation
-        and validation["status"] == "✅ VALIDATED"
+    with st.expander(
+        "📋 Log Investigation Agent",
+        expanded=True
     ):
 
-        st.success(
-            "✅ Evidence validation passed — "
-            "no unsupported evidence detected."
+        st.write(
+            f"**Total Events:** "
+            f"{investigation['total_events']}"
         )
 
-    else:
-
-        st.warning(
-            validation["status"]
-            if validation
-            else "Validation unavailable."
+        st.write(
+            f"**Failed Logins:** "
+            f"{investigation['failed_logins']}"
         )
 
-
-    tabs = st.tabs([
-        "🔍 Investigation",
-        "🎯 Threat Analysis",
-        "🕒 Timeline",
-        "🧩 Final Report"
-    ])
-
-
-    with tabs[0]:
-
-        st.markdown(
-            result["investigation"]
+        st.write(
+            f"**Successful Logins:** "
+            f"{investigation['successful_logins']}"
         )
 
+        st.write(
+            f"**Privilege Access Events:** "
+            f"{investigation['privilege_access_events']}"
+        )
 
-    with tabs[1]:
+        st.write(
+            f"**Unusual Activity Events:** "
+            f"{investigation['unusual_activity_events']}"
+        )
 
-        st.markdown(
-            result["incident_analysis"]
+        st.write(
+            f"**Source IPs:** "
+            f"{', '.join(investigation['source_ips'])}"
         )
 
 
-    with tabs[2]:
+    with st.expander(
+        "⚠️ Threat Analysis Agent",
+        expanded=True
+    ):
 
-        st.markdown(
-            result["timeline"]
+        for observation in threat_analysis["observations"]:
+            st.write(f"• {observation}")
+
+        st.markdown("### AI Threat Analysis")
+
+        st.write(
+            threat_analysis["ai_analysis"]
         )
 
 
-    with tabs[3]:
+    with st.expander(
+        "🕒 Timeline Agent",
+        expanded=True
+    ):
 
-        st.markdown(
-            result["final_report"]
+        for event in timeline:
+
+            st.write(
+                f"**{event['time']}** — "
+                f"{event['event']} — "
+                f"User: `{event['username']}` — "
+                f"IP: `{event['source_ip']}`"
+            )
+
+
+    with st.expander(
+        "🧠 Orchestrator Agent",
+        expanded=True
+    ):
+
+        st.write(
+            "The Orchestrator Agent combines the outputs "
+            "from the specialist agents and produces the "
+            "final evidence-first investigation."
         )
 
 
-    # ========================================================
-    # ANALYST ASSISTANT
-    # ========================================================
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
 
-    st.divider()
+    st.header("🛡️ Evidence Validation")
 
-    st.subheader(
-        "🤖 SentinelAI Analyst Assistant"
+    for validation_item in result["validation"]:
+
+        if "passed" in validation_item.lower():
+
+            st.success(validation_item)
+
+        else:
+
+            st.warning(validation_item)
+
+
+    # --------------------------------------------------------
+    # FINAL REPORT
+    # --------------------------------------------------------
+
+    st.header("📄 Final Evidence-First Investigation Report")
+
+    st.markdown(
+        result["final_report"]
     )
 
+
+    # --------------------------------------------------------
+    # HUMAN REVIEW
+    # --------------------------------------------------------
+
+    st.warning(
+        "⚠️ Human review is required before taking any "
+        "security action. SentinelAI does not automatically "
+        "block accounts, isolate systems, or modify infrastructure."
+    )
+
+
+    # --------------------------------------------------------
+    # ASSISTANT
+    # --------------------------------------------------------
+
+    st.header("💬 SentinelAI Assistant")
+
+    st.caption(
+        "Ask questions about the current investigation."
+    )
 
     question = st.text_input(
-        "Analyst question",
+        "Your question",
         placeholder=(
-            "Was the admin account definitely compromised?"
+            "Example: What happened before the privilege access event?"
         )
     )
-
 
     if st.button(
         "Ask SentinelAI",
@@ -1103,7 +763,7 @@ if result:
         if question.strip():
 
             with st.spinner(
-                "Analyzing investigation results..."
+                "SentinelAI Assistant is analyzing the evidence..."
             ):
 
                 answer = sentinel_assistant(
@@ -1111,38 +771,24 @@ if result:
                     result
                 )
 
-            st.info(answer)
+            st.markdown("### Assistant Response")
+
+            st.write(answer)
 
         else:
 
-            st.warning(
-                "Please enter a question."
+            st.info(
+                "Please enter a question first."
             )
 
 
-    # ========================================================
-    # HUMAN REVIEW
-    # ========================================================
+# ============================================================
+# FOOTER
+# ============================================================
 
-    st.divider()
+st.divider()
 
-    st.subheader(
-        "👤 Human Review"
-    )
-
-
-    st.warning(
-        "Pending human review — SentinelAI does not "
-        "automatically perform security response actions."
-    )
-
-
-    st.checkbox(
-        "I have reviewed the evidence and investigation report."
-    )
-
-
-    st.caption(
-        "SentinelAI is a defensive cybersecurity research "
-        "and demonstration system using simulated security logs."
-    )
+st.caption(
+    "SentinelAI — Evidence-First AI Incident Response | "
+    "Simulated Environment"
+)
